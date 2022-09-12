@@ -4,6 +4,8 @@ export const setStyleObject = (element, styleObject) => {
   }
 };
 
+export const getRandomInt = (range) => Math.floor(Math.random() * range);
+
 export const loadShader = async (downloadLink) => {
   try {
     const shaderFile = await fetch(downloadLink);

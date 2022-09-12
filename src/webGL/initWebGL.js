@@ -1,36 +1,15 @@
 import { loadShader } from '../utils';
-import fragmentShaderLink from './shaders/rectangle/fragmentShader.glsl';
-import vertexShaderLink from './shaders/rectangle/vertexShader.glsl';
+import drawRandom2DRectangle from './figures/2d/randomRectangle';
+import drawFixed2DRectangle from './figures/2d/fixedRectangle';
+import fragmentShaderLink from './shaders/2DFigure/fragmentShader.glsl';
+import vertexShaderLink from './shaders/2DFigure/vertexShader.glsl';
 import transform2DPixelsToClipSpaceCoordinates from './shaders/shadersUtils/transform2DPixelsToClipSpaceCoordinates.glsl';
 import transformClipSpaceCoordinatesToColorSpaceCoordinates from './shaders/shadersUtils/transformClipSpaceCoordinatesToColorSpaceCoordinates.glsl';
 
-const set2DRectangleToArrayBuffer = ({ webGLContext, x, y, width, height }) => {
-  const x1 = x;
-  const x2 = x + width;
-  const y1 = y;
-  const y2 = y + height;
-
-  const positionsArray = [
-    x1, y1,
-    x2, y1,
-    x1, y2,
-    x2, y2,
-    x2, y1,
-    x1, y2
-  ]
-
-  webGLContext.bufferData(webGLContext.ARRAY_BUFFER, new Float32Array(positionsArray), webGLContext.STATIC_DRAW);
-}
-
-const getRandomInt = (range) => Math.floor(Math.random() * range);
-
-const drawRandom2DRectangle = ({ webGLContext }) => {
-  set2DRectangleToArrayBuffer({ webGLContext, x: getRandomInt(300), y: getRandomInt(300), width: getRandomInt(300), height: getRandomInt(300) });
-
-  // webGLContext.uniform4f(colorUniformPointer, Math.random(), Math.random(), Math.random(), 1);
-
-  webGLContext.drawArrays(webGLContext.TRIANGLES, 0, 6);
-}
+const gameFieldDimensions = {
+  width: 640,
+  height: 480,
+};
 
 const resizeWebGLArea = ({ webGLContext, width, height }) => {
   // Множитель пикселей для HD-DPI (увеличит количество отрисовываемых пикселей в 2 / 3 / 4 раза; возможно вызовет фризы)
@@ -66,7 +45,7 @@ const initWebGLContext = (canvasElement) => {
 const getShader = async ({ webGLContext, shaderLinks, shaderType }) => {
   const shadersPromises = [];
 
-  shaderLinks.forEach((link) => shadersPromises.push(loadShader(link)));
+  shaderLinks.forEach((link) => shadersPromises.push(loadShader(link)));                         // Загружаем текст шейдера откуда-нибудь
 
   const shadersTexts = await Promise.all(shadersPromises);
   let resultShaderText = '';
@@ -78,8 +57,7 @@ const getShader = async ({ webGLContext, shaderLinks, shaderType }) => {
     `;
   })
 
-  // const shaderText = await loadShader(shaderLink);                                             // Загружаем текст шейдера откуда-нибудь
-  const shader = webGLContext.createShader(shaderType);                                            // Создаём шейдер с типом, который нужен
+  const shader = webGLContext.createShader(shaderType);                                           // Создаём шейдер с типом, который нужен
 
   webGLContext.shaderSource(shader, resultShaderText);                                            // Указываем шейдеру текст кода на glsl/hlsl
 
@@ -121,6 +99,8 @@ const initWebGLCanvas = async (containerForAppend) => {
 
   const canvasElement = document.createElement('canvas');
   (containerForAppend || document.body).appendChild(canvasElement);
+  canvasElement.width = gameFieldDimensions.width;
+  canvasElement.height = gameFieldDimensions.height;
 
   /** @type {WebGLRenderingContext} */
   const webGLContext = initWebGLContext(canvasElement);
@@ -155,23 +135,15 @@ const initWebGLCanvas = async (containerForAppend) => {
   // Получение ссылки на uniform переменную, чтобы прокинуть в неё данные о цвете
   const colorUniformPointer = webGLContext.getUniformLocation(shaderProgram, 'u_rectangleColor');
 
-  // Аттрибуты получают данные из буферов webGL. Поэтому надо создать буфер
-  const positionBuffer = webGLContext.createBuffer();
-  // И привязать его к контексту webGL
-  webGLContext.bindBuffer(webGLContext.ARRAY_BUFFER, positionBuffer);
+  // Получение ссылки на атрибут, чтобы прокинуть в него буфер цветов для рисуемой фигуры
+  const colorAttribPointer = webGLContext.getAttribLocation(shaderProgram, 'a_color');
 
-  // Пустой буфер бесполезен, поэтому его надо наполнить необходимыми СТРОГО ТИПИЗИРОВАННЫМИ данными (для позиций значения от -1 до 1)
-  // значения по умолчанию: x = 0, y = 0, z = 0, w = 1
-  const positionsData = [
-    50, 50,
-    50, 100,
-    100, 50,
-    100, 100,
-    50, 100,
-    100, 50
-  ];
-  // Данные помещаются в строго типизированный массив и копируются в positionBuffer на видеокарте; static_draw - означает, что мы не будем менять эти данные (надо для оптимизаций)
-  webGLContext.bufferData(webGLContext.ARRAY_BUFFER, new Float32Array(positionsData), webGLContext.STATIC_DRAW);
+  // Аттрибуты получают данные из буферов webGL. Поэтому надо создать буфер
+  const positionBufferPointer = webGLContext.createBuffer();
+  const colorBufferPointer = webGLContext.createBuffer();
+
+  setPositionBufferData({ webGLContext, positionBufferPointer });
+  setColorBufferData({ webGLContext, colorBufferPointer });
 
   /*
    *
@@ -197,10 +169,39 @@ const initWebGLCanvas = async (containerForAppend) => {
 
   webGLContext.uniform4f(colorUniformPointer, Math.random(), Math.random(), Math.random(), Math.random());
 
-  // Чтобы воспользоваться атрибутом в шейдере (для передачи в него данных) его для начала нужно включить (а до этого получить на него ссылку)
-  webGLContext.enableVertexAttribArray(positionAttribPointer);
+  configurePositionAttribute({ webGLContext, positionAttributePointer, positionBufferPointer });
 
-  webGLContext.bindBuffer(webGLContext.ARRAY_BUFFER, positionBuffer);
+
+  // После связывания атрибутов и данных можно выполнить шейдерную программу.
+  // Для этого нужно указать тип примитивов, используемых для отрисовки (точки / треугольники / линии),
+  // отступ от начало буфера, сколько раз вытащить данные из буфера
+  // const primitiveType = webGLContext.TRIANGLES;
+  // const offsetStart = 0;
+  // const count = 6;
+
+  // запускаем программу
+  // webGLContext.drawArrays(primitiveType, offsetStart, count);
+
+  // draw50Rects(webGLContext);
+  // drawRandom2DRectangle({ webGLContext })
+  // startGame(webGLContext);
+}
+
+// перерисовывает 50 рандомных прямоугольников раз в 1 / частота экрана секунд
+const draw50Rects = (webGLContext) => {
+  webGLContext.clear(webGLContext.COLOR_BUFFER_BIT);
+  for(let i = 0; i < 50; i++) {
+    drawRandom2DRectangle({ webGLContext })
+  }
+
+  requestAnimationFrame(() => draw50Rects(webGLContext))
+}
+
+const configurePositionAttribute = ({ webGLContext, positionAttributePointer, positionBufferPointer }) => {
+  // Чтобы воспользоваться атрибутом в шейдере (для передачи в него данных) его для начала нужно включить (а до этого получить на него ссылку)
+  webGLContext.enableVertexAttribArray(positionAttributePointer);
+
+  webGLContext.bindBuffer(webGLContext.ARRAY_BUFFER, positionBufferPointer);
 
   // Указываем атрибуту, как получать данные от positionBuffer (ARRAY_BUFFER)
   const size = 2;                     // 2 компоненты на итерацию
@@ -210,28 +211,93 @@ const initWebGLCanvas = async (containerForAppend) => {
   const offset = 0;                   // начинать с начала буфера
 
   // vertexAttribPointer привязывает к атрибуту текущий ARRAY_BUFFER в webGL (если после этого сменить текущий буфер, то к аттрибуту будет привязан старый)
-  webGLContext.vertexAttribPointer(positionAttribPointer, size, type, normalize, stride, offset);
-
-  // После связывания атрибутов и данных можно выполнить шейдерную программу.
-  // Для этого нужно указать тип примитивов, используемых для отрисовки (точки / треугольники / линии),
-  // отступ от начало буфера, сколько раз вытащить данные из буфера
-  const primitiveType = webGLContext.TRIANGLES;
-  const offsetStart = 0;
-  const count = 6;
-
-  // запускаем программу
-  webGLContext.drawArrays(primitiveType, offsetStart, count);
-
-  draw50Rects(webGLContext);
+  webGLContext.vertexAttribPointer(positionAttributePointer, size, type, normalize, stride, offset);
 }
 
-const draw50Rects = (webGLContext) => {
-  webGLContext.clear(webGLContext.COLOR_BUFFER_BIT);
-  for(let i = 0; i < 50; i++) {
-    drawRandom2DRectangle({ webGLContext })
+const setPositionBufferData = ({ webGLContext, positionBufferPointer }) => {
+  webGLContext.bindBuffer(webGLContext.ARRAY_BUFFER, positionBufferPointer);
+
+  // Пустой буфер бесполезен, поэтому его надо наполнить необходимыми СТРОГО ТИПИЗИРОВАННЫМИ данными (для позиций значения от -1 до 1)
+  // значения по умолчанию: x = 0, y = 0, z = 0, w = 1
+  const positionsData = [
+    50, 50,
+    50, 100,
+    100, 50,
+    100, 100,
+    50, 100,
+    100, 50
+  ];
+
+  // Данные помещаются в строго типизированный массив и копируются в positionBuffer на видеокарте; static_draw - означает, что мы не будем менять эти данные (надо для оптимизаций)
+  webGLContext.bufferData(webGLContext.ARRAY_BUFFER, new Float32Array(positionsData), webGLContext.STATIC_DRAW);
+}
+
+const setColorBufferData = ({ webGLContext, colorBufferPointer }) => {
+  webGLContext.bindBuffer(webGLContext.ARRAY_BUFFER, colorBufferPointer);
+
+  const r1 = Math.random();
+  const g1 = Math.random();
+  const b1 = Math.random();
+
+  const r2 = Math.random();
+  const g2 = Math.random();
+  const b2 = Math.random();
+
+  const colors = [
+    r1, g1, b1, 1,
+    r1, g1, b1, 1,
+    r1, g1, b1, 1,
+    r2, g2, b2, 1,
+    r2, g2, b2, 1,
+    r2, g2, b2, 1,
+  ]
+
+  webGLContext.bufferData(webGLContext.ARRAY_BUFFER, new Float32Array(colors), webGLContext.STATIC_DRAW);
+}
+
+const startGame = (webGLContext) => {
+  const canvasElementRef = webGLContext.canvas;
+  const rectangleCoordinates = {
+    x1: Math.round((canvasElementRef.width / 2)) - 75,
+    y1: canvasElementRef.height,
+    x2: Math.round((canvasElementRef.width / 2)) + 75,
+    y2: canvasElementRef.height - 30,
+  };
+
+  drawFixed2DRectangle({
+    webGLContext,
+    ...rectangleCoordinates
+  });
+
+  const handleUserKeydown = (event) => {
+    if ((event.code === 'ArrowRight' || event.code === 'KeyD') && rectangleCoordinates.x2 < canvasElementRef.width) {
+      requestAnimationFrame(() => {
+        rectangleCoordinates.x1 += 20;
+        rectangleCoordinates.x2 += 20;
+
+        webGLContext.clear(webGLContext.COLOR_BUFFER_BIT);
+        drawFixed2DRectangle({
+          webGLContext,
+          ...rectangleCoordinates,
+        });
+      })
+    }
+
+    if ((event.code === 'ArrowLeft' || event.code === 'KeyA') && rectangleCoordinates.x1 > 0) {
+      requestAnimationFrame(() => {
+        rectangleCoordinates.x1 -= 20;
+        rectangleCoordinates.x2 -= 20;
+
+        webGLContext.clear(webGLContext.COLOR_BUFFER_BIT);
+        drawFixed2DRectangle({
+          webGLContext,
+          ...rectangleCoordinates,
+        });
+      })
+    }
   }
 
-  requestAnimationFrame(() => draw50Rects(webGLContext))
+  document.addEventListener('keydown', handleUserKeydown);
 }
 
 export default initWebGLCanvas;
