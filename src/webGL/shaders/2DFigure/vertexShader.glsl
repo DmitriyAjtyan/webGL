@@ -17,5 +17,7 @@ void main() {
   gl_Position = vec4(transform2DPixelsToClipSpaceCoordinates(a_position, u_resolution), 0, 1);
 
   // Преобразуем координаты пространства отсечения в координаты пространства цветов, чтобы задать цвета пикселей, основываясь на их положении
-  v_color = transformClipSpaceCoordinatesToColorSpaceCoordinates(gl_Position);
+  // v_color = transformClipSpaceCoordinatesToColorSpaceCoordinates(gl_Position);
+
+  v_color = a_color;
 }

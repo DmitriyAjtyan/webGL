@@ -127,7 +127,7 @@ const initWebGLCanvas = async (containerForAppend) => {
   // После того, как создана шейдерная программа, её нужно снабдить данными. Данные передадутся шейдерам, а именно в атрибуты, которые объявлены в тексте
   // программы шейдера. Сначала сработает вершинный шейдер. В нём объявлен один атрибут attribute vec4 a_position (a_position). Чтобы передать ему
   // данные нужно получить на него ссылку (обязательно до первой отрисовки!)
-  const positionAttribPointer = webGLContext.getAttribLocation(shaderProgram, 'a_position');
+  const positionAttributePointer = webGLContext.getAttribLocation(shaderProgram, 'a_position');
 
   // Получение ссылки на uniform переменную, чтобы прокинуть в неё данные о размерах canvas
   const resolutionUniformPointer = webGLContext.getUniformLocation(shaderProgram, 'u_resolution');
@@ -136,13 +136,13 @@ const initWebGLCanvas = async (containerForAppend) => {
   const colorUniformPointer = webGLContext.getUniformLocation(shaderProgram, 'u_rectangleColor');
 
   // Получение ссылки на атрибут, чтобы прокинуть в него буфер цветов для рисуемой фигуры
-  const colorAttribPointer = webGLContext.getAttribLocation(shaderProgram, 'a_color');
+  const colorAttributePointer = webGLContext.getAttribLocation(shaderProgram, 'a_color');
 
   // Аттрибуты получают данные из буферов webGL. Поэтому надо создать буфер
-  const positionBufferPointer = webGLContext.createBuffer();
+  const geometryBufferPointer = webGLContext.createBuffer();
   const colorBufferPointer = webGLContext.createBuffer();
 
-  setPositionBufferData({ webGLContext, positionBufferPointer });
+  setGeometry({ webGLContext, geometryBufferPointer });
   setColorBufferData({ webGLContext, colorBufferPointer });
 
   /*
@@ -169,18 +169,41 @@ const initWebGLCanvas = async (containerForAppend) => {
 
   webGLContext.uniform4f(colorUniformPointer, Math.random(), Math.random(), Math.random(), Math.random());
 
-  configurePositionAttribute({ webGLContext, positionAttributePointer, positionBufferPointer });
+  configureAttribute({
+    webGLContext,
+    attributePointer: positionAttributePointer,
+    bufferPointer: geometryBufferPointer,
+    attributeConfig: {                            // Указываем атрибуту, как получать данные от positionBuffer (ARRAY_BUFFER)
+      size: 2,                                    // 2 компоненты на итерацию
+      type: webGLContext.FLOAT,                   // наши данные - 32-битные числа с плавающей точкой
+      normalize: false,                           // не нормализовать данные
+      stride: 0,                                  // 0 = перемещаться на size * sizeof(type) каждую итерацию для получения следующего положения
+      offset: 0,                                  // начинать с начала буфера
+    }
+  });
 
+  configureAttribute({
+    webGLContext,
+    attributePointer: colorAttributePointer,
+    bufferPointer: colorBufferPointer,
+    attributeConfig: {
+      size: 4,
+      type: webGLContext.UNSIGNED_BYTE,           // Цвета в webGL - это значения от 0.0 до 1.0 - чисто положительные. Цвета можно закодировать
+      normalize: true,                            // тремя байтами (r, g, b по 256 значений). Следовательно unsigned int здесь подходит лучше всего.
+      stride: 0,
+      offset: 0,
+    }
+  });
 
   // После связывания атрибутов и данных можно выполнить шейдерную программу.
   // Для этого нужно указать тип примитивов, используемых для отрисовки (точки / треугольники / линии),
   // отступ от начало буфера, сколько раз вытащить данные из буфера
-  // const primitiveType = webGLContext.TRIANGLES;
-  // const offsetStart = 0;
-  // const count = 6;
+  const primitiveType = webGLContext.TRIANGLES;
+  const offsetStart = 0;
+  const count = 6;
 
   // запускаем программу
-  // webGLContext.drawArrays(primitiveType, offsetStart, count);
+  webGLContext.drawArrays(primitiveType, offsetStart, count);
 
   // draw50Rects(webGLContext);
   // drawRandom2DRectangle({ webGLContext })
@@ -197,62 +220,64 @@ const draw50Rects = (webGLContext) => {
   requestAnimationFrame(() => draw50Rects(webGLContext))
 }
 
-const configurePositionAttribute = ({ webGLContext, positionAttributePointer, positionBufferPointer }) => {
+const configureAttribute = ({ webGLContext, attributePointer, bufferPointer, attributeConfig = {} }) => {
   // Чтобы воспользоваться атрибутом в шейдере (для передачи в него данных) его для начала нужно включить (а до этого получить на него ссылку)
-  webGLContext.enableVertexAttribArray(positionAttributePointer);
-
-  webGLContext.bindBuffer(webGLContext.ARRAY_BUFFER, positionBufferPointer);
-
-  // Указываем атрибуту, как получать данные от positionBuffer (ARRAY_BUFFER)
-  const size = 2;                     // 2 компоненты на итерацию
-  const type = webGLContext.FLOAT;    // наши данные - 32-битные числа с плавающей точкой
-  const normalize = false;            // не нормализовать данные
-  const stride = 0;                   // 0 = перемещаться на size * sizeof(type) каждую итерацию для получения следующего положения
-  const offset = 0;                   // начинать с начала буфера
+  webGLContext.enableVertexAttribArray(attributePointer);
+  // Потом привязать необходимый буффер с данными
+  webGLContext.bindBuffer(webGLContext.ARRAY_BUFFER, bufferPointer);
 
   // vertexAttribPointer привязывает к атрибуту текущий ARRAY_BUFFER в webGL (если после этого сменить текущий буфер, то к аттрибуту будет привязан старый)
-  webGLContext.vertexAttribPointer(positionAttributePointer, size, type, normalize, stride, offset);
+  webGLContext.vertexAttribPointer(
+    attributePointer,
+    attributeConfig.size,
+    attributeConfig.type,
+    attributeConfig.normalize,
+    attributeConfig.stride,
+    attributeConfig.offset
+  );
 }
 
-const setPositionBufferData = ({ webGLContext, positionBufferPointer }) => {
-  webGLContext.bindBuffer(webGLContext.ARRAY_BUFFER, positionBufferPointer);
+const setGeometry = ({ webGLContext, geometryBufferPointer }) => {
+  webGLContext.bindBuffer(webGLContext.ARRAY_BUFFER, geometryBufferPointer);
 
   // Пустой буфер бесполезен, поэтому его надо наполнить необходимыми СТРОГО ТИПИЗИРОВАННЫМИ данными (для позиций значения от -1 до 1)
   // значения по умолчанию: x = 0, y = 0, z = 0, w = 1
-  const positionsData = [
+  const vertexData = [
     50, 50,
-    50, 100,
-    100, 50,
-    100, 100,
-    50, 100,
-    100, 50
+    50, 400,
+    400, 50,
+    400, 400,
+    50, 400,
+    400, 50
   ];
 
-  // Данные помещаются в строго типизированный массив и копируются в positionBuffer на видеокарте; static_draw - означает, что мы не будем менять эти данные (надо для оптимизаций)
-  webGLContext.bufferData(webGLContext.ARRAY_BUFFER, new Float32Array(positionsData), webGLContext.STATIC_DRAW);
+  // Данные помещаются в строго типизированный массив и копируются в geometryBuffer на видеокарте; static_draw - означает, что мы не будем менять эти данные (надо для оптимизаций)
+  webGLContext.bufferData(webGLContext.ARRAY_BUFFER, new Float32Array(vertexData), webGLContext.STATIC_DRAW);
 }
 
 const setColorBufferData = ({ webGLContext, colorBufferPointer }) => {
   webGLContext.bindBuffer(webGLContext.ARRAY_BUFFER, colorBufferPointer);
 
-  const r1 = Math.random();
-  const g1 = Math.random();
-  const b1 = Math.random();
+  // фиксированный цвет - rgb для каждой вершины одинаковое
+  // const r1 = Math.random();
+  // const g1 = Math.random();
+  // const b1 = Math.random();
 
-  const r2 = Math.random();
-  const g2 = Math.random();
-  const b2 = Math.random();
+  // const r2 = Math.random();
+  // const g2 = Math.random();
+  // const b2 = Math.random();
 
+  // максимальное значение Math.random() * 256 = 255.9999999999. При касте в uint всё, что после точки, отбросится и будет максимум 255
   const colors = [
-    r1, g1, b1, 1,
-    r1, g1, b1, 1,
-    r1, g1, b1, 1,
-    r2, g2, b2, 1,
-    r2, g2, b2, 1,
-    r2, g2, b2, 1,
+    Math.random() * 256, Math.random() * 256, Math.random() * 256, 255,
+    Math.random() * 256, Math.random() * 256, Math.random() * 256, 255,
+    Math.random() * 256, Math.random() * 256, Math.random() * 256, 255,
+    Math.random() * 256, Math.random() * 256, Math.random() * 256, 255,
+    Math.random() * 256, Math.random() * 256, Math.random() * 256, 255,
+    Math.random() * 256, Math.random() * 256, Math.random() * 256, 255,
   ]
 
-  webGLContext.bufferData(webGLContext.ARRAY_BUFFER, new Float32Array(colors), webGLContext.STATIC_DRAW);
+  webGLContext.bufferData(webGLContext.ARRAY_BUFFER, new Uint8Array(colors), webGLContext.STATIC_DRAW);
 }
 
 const startGame = (webGLContext) => {
